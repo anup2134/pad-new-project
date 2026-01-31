@@ -1,5 +1,6 @@
 from groq import Groq
 from config import GROQ_API_KEY
+import re
 
 client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
@@ -13,17 +14,17 @@ DYSLEXIA_GUIDELINES = {
 2. Avoid words with silent letters or unusual spellings
 3. Use consistent spelling patterns
 4. Avoid homophones (words that sound alike)
-5. Keep words intact; do NOT split words into syllables or use extra spaces within words."""
+5. Keep words intact; do NOT split words into syllables or use extra spaces within words.""",
     },
     "surface": {
-        "name": "Surface Dyslexia", 
+        "name": "Surface Dyslexia",
         "focus": "difficulty recognizing whole word shapes",
         "guidelines": """
 1. Use shorter, common words
 2. Avoid irregular spellings
 3. Keep consistent word patterns
 4. Use words that look different from each other
-5. Avoid similar-looking words together"""
+5. Avoid similar-looking words together""",
     },
     "visual": {
         "name": "Visual Dyslexia",
@@ -33,7 +34,7 @@ DYSLEXIA_GUIDELINES = {
 2. Add extra spacing between ideas
 3. Avoid crowded text
 4. Use clear paragraph breaks
-5. One idea per sentence"""
+5. One idea per sentence""",
     },
     "auditory": {
         "name": "Auditory Dyslexia",
@@ -43,7 +44,7 @@ DYSLEXIA_GUIDELINES = {
 2. Use numbered lists (1, 2, 3) instead of bullets
 3. Avoid words that sound similar
 4. Use clear, simple sentence structure
-5. Focus on visual clarity of the text"""
+5. Focus on visual clarity of the text""",
     },
     "mixed": {
         "name": "Mixed/Deep Dyslexia",
@@ -54,7 +55,7 @@ DYSLEXIA_GUIDELINES = {
 3. One concept per paragraph
 4. Use numbered steps for sequences
 5. Repeat important information
-6. Keep words intact; do NOT split words into syllables or use spaces within words."""
+6. Keep words intact; do NOT split words into syllables or use spaces within words.""",
     },
     "general": {
         "name": "General Dyslexia Support",
@@ -64,15 +65,18 @@ DYSLEXIA_GUIDELINES = {
 2. Keep sentences short (maximum 15 words)
 3. Use active voice
 4. Clear paragraph structure
-5. Avoid jargon"""
-    }
+5. Avoid jargon""",
+    },
 }
 
-def _get_simplify_prompt(text: str, language: str, dyslexia_type: str, lang_name: str, dx_info: dict) -> str:
+
+def _get_simplify_prompt(
+    text: str, language: str, dyslexia_type: str, lang_name: str, dx_info: dict
+) -> str:
     """Generate dyslexia-type-specific simplification prompts"""
-    
+
     # Base prompt structure for all types
-    base_rules = """STRICT OUTPUT RULES:
+    base_rules = f"""STRICT OUTPUT RULES:
 1. ONLY output the simplified content.
 2. DO NOT use special characters like asterisks, double asterisks, hashes, bullets, emojis, or symbols.
 3. Use PLAIN TEXT only.
@@ -116,7 +120,6 @@ TEXT TO SIMPLIFY:
 {text}
 
 SIMPLIFIED TEXT (PLAIN TEXT ONLY):""",
-
         "surface": f"""You are an expert in helping people with SURFACE DYSLEXIA read text.
 People with surface dyslexia struggle to recognize whole word shapes and irregular spellings.
 
@@ -142,7 +145,6 @@ TEXT TO SIMPLIFY:
 {text}
 
 SIMPLIFIED TEXT (PLAIN TEXT ONLY):""",
-
         "visual": f"""You are an expert in helping people with VISUAL DYSLEXIA read text.
 People with visual dyslexia struggle with visual crowding and letter/word recognition.
 
@@ -168,7 +170,6 @@ TEXT TO SIMPLIFY:
 {text}
 
 SIMPLIFIED TEXT (PLAIN TEXT ONLY):""",
-
         "auditory": f"""You are an expert in helping people with AUDITORY DYSLEXIA read text.
 People with auditory dyslexia struggle with similar-sounding words and phoneme processing.
 
@@ -194,7 +195,6 @@ TEXT TO SIMPLIFY:
 {text}
 
 SIMPLIFIED TEXT (PLAIN TEXT ONLY):""",
-
         "mixed": f"""You are an expert in helping people with MIXED/DEEP DYSLEXIA read text.
 People with mixed dyslexia struggle with visual, auditory, and phonological challenges combined.
 
@@ -222,7 +222,6 @@ TEXT TO SIMPLIFY:
 {text}
 
 SIMPLIFIED TEXT (PLAIN TEXT ONLY):""",
-
         "general": f"""You are an expert in making text accessible for people with general reading difficulties.
 
 READABILITY RULES:
@@ -242,26 +241,83 @@ READABILITY RULES:
 TEXT TO SIMPLIFY:
 {text}
 
-SIMPLIFIED TEXT (PLAIN TEXT ONLY):"""
+SIMPLIFIED TEXT (PLAIN TEXT ONLY):""",
     }
-    
+
     return type_specific_prompts.get(dyslexia_type, type_specific_prompts["general"])
 
-async def simplify_text(text: str, language: str = "en", dyslexia_type: str = "general") -> str:
+
+# ---------- Unicode script regex ----------
+RE_DEVANAGARI = re.compile(r"[\u0900-\u097F]")  # Hindi
+RE_ARABIC = re.compile(r"[\u0600-\u06FF]")  # Arabic
+RE_HAN = re.compile(r"[\u4E00-\u9FFF]")  # Chinese
+RE_HIRAGANA = re.compile(r"[\u3040-\u309F]")  # Japanese
+RE_KATAKANA = re.compile(r"[\u30A0-\u30FF]")  # Japanese
+RE_HANGUL = re.compile(r"[\uAC00-\uD7AF]")  # Korean
+RE_CYRILLIC = re.compile(r"[\u0400-\u04FF]")  # Russian
+
+
+def detect_language_code(text: str) -> str:
+    """
+    Script-based detection only.
+    Latin scripts default to English.
+    Returns one of:
+    en, hi, ar, zh, ja, ko, ru
+    """
+
+    if not text:
+        return "en"
+
+    if RE_DEVANAGARI.search(text):
+        return "hi"
+
+    if RE_ARABIC.search(text):
+        return "ar"
+
+    if RE_HANGUL.search(text):
+        return "ko"
+
+    if RE_HIRAGANA.search(text) or RE_KATAKANA.search(text):
+        return "ja"
+
+    if RE_HAN.search(text):
+        return "zh"
+
+    if RE_CYRILLIC.search(text):
+        return "ru"
+
+    # All Latin → English (en, es, fr, de, it, pt)
+    return "en"
+
+
+async def simplify_text(
+    text: str, language: str = "en", dyslexia_type: str = "general"
+) -> str:
     """Simplify complex text for easier reading by people with dyslexia using type-specific prompts"""
     if not client:
-        return "Error: Groq API key not configured. Please set GROQ_API_KEY in .env file."
-    
+        return (
+            "Error: Groq API key not configured. Please set GROQ_API_KEY in .env file."
+        )
+
     language_names = {
-        "en": "English", "es": "Spanish", "fr": "French", "de": "German",
-        "it": "Italian", "pt": "Portuguese", "hi": "Hindi", "ar": "Arabic",
-        "zh": "Chinese", "ja": "Japanese", "ko": "Korean", "ru": "Russian"
+        "en": "English",
+        "es": "Spanish",
+        "fr": "French",
+        "de": "German",
+        "it": "Italian",
+        "pt": "Portuguese",
+        "hi": "Hindi",
+        "ar": "Arabic",
+        "zh": "Chinese",
+        "ja": "Japanese",
+        "ko": "Korean",
+        "ru": "Russian",
     }
-    lang_name = language_names.get(language, "English")
-    
+    lang_name = language_names.get(detect_language_code(text[:200]), "English")
+
     # Get dyslexia-specific guidelines
     dx_info = DYSLEXIA_GUIDELINES.get(dyslexia_type, DYSLEXIA_GUIDELINES["general"])
-    
+
     # Generate type-specific prompt
     prompt = _get_simplify_prompt(text, language, dyslexia_type, lang_name, dx_info)
 
@@ -270,15 +326,18 @@ async def simplify_text(text: str, language: str = "en", dyslexia_type: str = "g
             model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
-            max_tokens=2048
+            max_tokens=2048,
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
         return f"Error simplifying text: {str(e)}"
 
-def _get_summarize_prompt(text: str, language: str, dyslexia_type: str, lang_name: str, dx_info: dict) -> str:
+
+def _get_summarize_prompt(
+    text: str, language: str, dyslexia_type: str, lang_name: str, dx_info: dict
+) -> str:
     """Generate dyslexia-type-specific summarization prompts"""
-    
+
     # Base prompt structure for all types
     base_rules = """STRICT OUTPUT RULES:
 1. ONLY output the summary points.
@@ -323,7 +382,6 @@ TEXT TO SUMMARIZE:
 {text}
 
 SUMMARY (NUMBERED LIST, PLAIN TEXT ONLY):""",
-
         "surface": f"""You are an expert in creating summaries for people with SURFACE DYSLEXIA.
 People with surface dyslexia struggle to recognize whole word shapes and irregular spellings.
 
@@ -346,7 +404,6 @@ TEXT TO SUMMARIZE:
 {text}
 
 SUMMARY (NUMBERED LIST, PLAIN TEXT ONLY):""",
-
         "visual": f"""You are an expert in creating summaries for people with VISUAL DYSLEXIA.
 People with visual dyslexia struggle with visual crowding and letter/word recognition.
 
@@ -369,7 +426,6 @@ TEXT TO SUMMARIZE:
 {text}
 
 SUMMARY (NUMBERED LIST, PLAIN TEXT ONLY):""",
-
         "auditory": f"""You are an expert in creating summaries for people with AUDITORY DYSLEXIA.
 People with auditory dyslexia struggle with similar-sounding words and phoneme processing.
 
@@ -392,7 +448,6 @@ TEXT TO SUMMARIZE:
 {text}
 
 SUMMARY (NUMBERED LIST, PLAIN TEXT ONLY):""",
-
         "mixed": f"""You are an expert in creating summaries for people with MIXED/DEEP DYSLEXIA.
 People with mixed dyslexia struggle with visual, auditory, and phonological challenges combined.
 
@@ -415,7 +470,6 @@ TEXT TO SUMMARIZE:
 {text}
 
 SUMMARY (NUMBERED LIST, PLAIN TEXT ONLY):""",
-
         "general": f"""You are an expert in creating accessible summaries for people with general reading difficulties.
 
 READABILITY RULES:
@@ -432,26 +486,40 @@ READABILITY RULES:
 TEXT TO SUMMARIZE:
 {text}
 
-SUMMARY (NUMBERED LIST, PLAIN TEXT ONLY):"""
+SUMMARY (NUMBERED LIST, PLAIN TEXT ONLY):""",
     }
-    
+
     return type_specific_prompts.get(dyslexia_type, type_specific_prompts["general"])
 
-async def summarize_text(text: str, language: str = "en", dyslexia_type: str = "general") -> str:
+
+async def summarize_text(
+    text: str, language: str = "en", dyslexia_type: str = "general"
+) -> str:
     """Create a concise summary of the text using type-specific prompts"""
     if not client:
-        return "Error: Groq API key not configured. Please set GROQ_API_KEY in .env file."
-    
+        return (
+            "Error: Groq API key not configured. Please set GROQ_API_KEY in .env file."
+        )
+
     language_names = {
-        "en": "English", "es": "Spanish", "fr": "French", "de": "German",
-        "it": "Italian", "pt": "Portuguese", "hi": "Hindi", "ar": "Arabic",
-        "zh": "Chinese", "ja": "Japanese", "ko": "Korean", "ru": "Russian"
+        "en": "English",
+        "es": "Spanish",
+        "fr": "French",
+        "de": "German",
+        "it": "Italian",
+        "pt": "Portuguese",
+        "hi": "Hindi",
+        "ar": "Arabic",
+        "zh": "Chinese",
+        "ja": "Japanese",
+        "ko": "Korean",
+        "ru": "Russian",
     }
     lang_name = language_names.get(language, "English")
-    
+
     # Get dyslexia-specific guidelines
     dx_info = DYSLEXIA_GUIDELINES.get(dyslexia_type, DYSLEXIA_GUIDELINES["general"])
-    
+
     # Generate type-specific prompt
     prompt = _get_summarize_prompt(text, language, dyslexia_type, lang_name, dx_info)
 
@@ -460,20 +528,44 @@ async def summarize_text(text: str, language: str = "en", dyslexia_type: str = "
             model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
-            max_tokens=1024
+            max_tokens=1024,
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
         return f"Error summarizing text: {str(e)}"
 
+
 def get_dyslexia_types():
     """Return list of supported dyslexia types"""
     return [
-        {"code": "phonological", "name": "Phonological Dyslexia", "description": "Difficulty connecting sounds to letters"},
-        {"code": "surface", "name": "Surface Dyslexia", "description": "Difficulty recognizing whole word shapes"},
-        {"code": "visual", "name": "Visual Dyslexia", "description": "Difficulty processing visual text"},
-        {"code": "auditory", "name": "Auditory Dyslexia", "description": "Difficulty processing spoken language"},
-        {"code": "mixed", "name": "Mixed/Deep Dyslexia", "description": "Combination of multiple difficulties"},
-        {"code": "general", "name": "Not Sure / General", "description": "General reading support"}
+        {
+            "code": "phonological",
+            "name": "Phonological Dyslexia",
+            "description": "Difficulty connecting sounds to letters",
+        },
+        {
+            "code": "surface",
+            "name": "Surface Dyslexia",
+            "description": "Difficulty recognizing whole word shapes",
+        },
+        {
+            "code": "visual",
+            "name": "Visual Dyslexia",
+            "description": "Difficulty processing visual text",
+        },
+        {
+            "code": "auditory",
+            "name": "Auditory Dyslexia",
+            "description": "Difficulty processing spoken language",
+        },
+        {
+            "code": "mixed",
+            "name": "Mixed/Deep Dyslexia",
+            "description": "Combination of multiple difficulties",
+        },
+        {
+            "code": "general",
+            "name": "Not Sure / General",
+            "description": "General reading support",
+        },
     ]
-
