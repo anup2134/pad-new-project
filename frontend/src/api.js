@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE = '/https://pad-new-project.onrender.com/api';
+const API_BASE = 'https://pad-new-project.onrender.com/api';
 
 export const api = {
     // Profile
