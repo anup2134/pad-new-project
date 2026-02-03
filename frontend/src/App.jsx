@@ -277,7 +277,7 @@ function App() {
 
             if (res.data.success) {
                 // Set audio source
-                const url = `http://localhost:8000${res.data.audio_url}`;
+                const url = `https://pad-new-project.onrender.com${res.data.audio_url}`;
                 setAudioUrl(url);
                 setWordTimings(res.data.word_timings);
 
